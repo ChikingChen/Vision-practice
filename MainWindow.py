@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 from tkinter import filedialog
 from sklearn.multiclass import OneVsRestClassifier
 import matplotlib.pyplot as plt
+from functools import cmp_to_key
 
 from sklearn.cluster import KMeans
 from sklearn.metrics import recall_score, precision_score, roc_curve, auc
@@ -328,8 +329,8 @@ class MainWindow:
             self.right.config(state='normal')
         for i in range(5):
             self.show[i + 1].config(state=tk.NORMAL)
-            self.labelshow(self.ids[0][i + (self.page - 1) * 5], i + 1)
-            self.parashow(self.dis[0][i + (self.page - 1) * 5], i + 1)
+            self.labelshow(self.ids[0][self.showlist[i + (self.page - 1) * 5]], i + 1)
+            self.parashow(self.dis[0][self.showlist[i + (self.page - 1) * 5]], i + 1)
         return
 
     def clickright(self):
@@ -338,12 +339,12 @@ class MainWindow:
             self.right.config(state='disabled')
         if self.page == 2:
             self.left.config(state='normal')
-        show = 5 if self.page * 5 <= self.shownum else (self.shownum - 1) % 5
+        show = 5 if self.page * 5 <= self.shownum else (self.shownum - 1) % 5 + 1
         for i in range(show):
             self.show[i + 1].config(state=tk.NORMAL)
-            self.labelshow(self.ids[0][i + (self.page - 1) * 5], i + 1)
-            self.parashow(self.dis[0][i + (self.page - 1) * 5], i + 1)
-        for i in range(show + 1, 5):
+            self.labelshow(self.ids[0][self.showlist[i + (self.page - 1) * 5]], i + 1)
+            self.parashow(self.dis[0][self.showlist[i + (self.page - 1) * 5]], i + 1)
+        for i in range(show, 5):
             self.show[i + 1].config(state=tk.DISABLED)
             self.para[i + 1].config(text="")
         return
@@ -360,18 +361,47 @@ class MainWindow:
         _, des = self.manage.detectAndCompute(self.img, None)
         vector = get_image_features(self.kmeans, des)
         vector = calsingletfidf(vector, self.kmeans.n_clusters, self.idf)
+        # 由高到低返回某张图片的 距离以及编号
         self.dis, self.ids = self.nn.kneighbors(np.array(vector).reshape(1, -1))
 
-        for i in self.dis:
-            print(i)
+        label = []
+        # 将每个被显示的图像的 label 加入 label list中
+        for i in range(self.shownum):
+            label.append(self.train_label[self.ids[0][i]])
+        # dis 代表被显示的图像的距离 ids 代表被显示图像在训练集中的编号
+        dis = self.dis[0][ : self.shownum]
+        ids = self.ids[0][ : self.shownum]
+        # dic 代表不同的 label 对应的度量值
+        dic = {}
+        for i in range(self.shownum):
+            if not dic.get(label[i]):
+                dic[label[i]] = 0
+            dic[label[i]] += 0.01 / (dis[i] + 0.01)
 
-        self.page = 1
+        # 经过排序之后的label list，按照度量值高到低不重复地展示不同的label
+        def compare(a, b):
+            if dic[a] > dic[b]:
+                return -1
+            elif dic[a] == dic[b]:
+                return 0
+            else:
+                return 1
+        label = sorted(list(set(label)), key=cmp_to_key(compare))
+
+        # 在 showlist 中加入多个二元组
+        # 二元组的两个元素分别为在 self.dis 中的索引编号
+        self.showlist = []
+        for name in label:
+            for i, j in enumerate(ids):
+                if self.train_label[j] == name:
+                    self.showlist.append(i)
 
         root = tk.Toplevel(self.root)
         root.title("匹配结果")
         root.geometry("1000x500+0+0")
         root.resizable(False, False)
 
+        # 布置显示框
         self.show = []
         self.para = []
         for i in range(6):
@@ -379,22 +409,23 @@ class MainWindow:
             self.para.append(None)
         self.show[0] = tk.Label(root, width=block, height=block)
         self.show[0].place(relx=0.5, y=130, anchor=tk.CENTER)
-        self.para[0] = tk.Label(root)
-        self.para[0].place(relx=0.5, y=30, anchor=tk.CENTER)
         for i in range(1, 6):
             self.show[i] = tk.Label(root, width=block, height=block)
             self.show[i].place(relx=-0.1+0.2*i, y=350, anchor=tk.CENTER)
             self.para[i] = tk.Label(root)
             self.para[i].place(relx=-0.1+0.2*i, y=250, anchor=tk.CENTER)
 
+        # 内容显示
         self.labelshow(-1, 0)
         for i in range(5):
-            self.labelshow(self.ids[0][i], i + 1)
-            self.parashow(self.dis[0][i], i + 1)
+            self.labelshow(self.ids[0][self.showlist[i]], i + 1)
+            self.parashow(self.dis[0][self.showlist[i]], i + 1)
         for i in range(min(self.shownum, 5), 5):
             self.show[i + 1].config(state=tk.DISABLED)
             self.para[i + 1].config(text='')
 
+        # 布置左右键
+        self.page = 1
         self.left = tk.Button(root, text='\u25C0', font=('Arial', 16), command=self.clickleft, state='disabled')
         self.left.place(relx=0.3, y=450)
         self.right = tk.Button(root, text='\u25B6', font=('Arial', 16), command=self.clickright)
