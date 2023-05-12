@@ -89,7 +89,7 @@ class MainWindow:
         self.kmeans = KMeans(n_clusters=cluster, random_state=0)
         self.kmeans.fit(train_des)
 
-        train_features = []
+        self.train_features = []
         self.train_label = []
         i = 0
         for root, dirs, files in os.walk(train_path):
@@ -102,31 +102,31 @@ class MainWindow:
                 ## sift 提取特征而后特征归类
                 feature_vector = get_image_features(self.kmeans, train_des2[i])
                 ## 整理数据集内容
-                train_features.append(feature_vector)
+                self.train_features.append(feature_vector)
 
                 self.train_label.append(file[:6])
 
                 i = i + 1
 
         ## 对训练集特征进行tfidf运算，并转置
-        self.idf = calidf(train_features, self.kmeans.n_clusters)
-        train_features = caltfidf(train_features, self.kmeans.n_clusters, self.idf)
-        train_features = np.vstack(train_features)
+        self.idf = calidf(self.train_features, self.kmeans.n_clusters)
+        self.train_features = caltfidf(self.train_features, self.kmeans.n_clusters, self.idf)
+        self.train_features = np.vstack(self.train_features)
 
         ## 计算训练时间
         end = time.time()
         print("train time:", end - start)
 
         self.knn = KNeighborsClassifier(n_neighbors=12)
-        self.knn.fit(train_features, self.train_label)
+        self.knn.fit(self.train_features, self.train_label)
         self.ovr = OneVsRestClassifier(self.knn)
-        self.ovr.fit(train_features, self.train_label)
+        self.ovr.fit(self.train_features, self.train_label)
 
-        self.nn = NearestNeighbors(n_neighbors=len(self.train_pic)).fit(train_features)
+        self.nn = NearestNeighbors(n_neighbors=len(self.train_pic)).fit(self.train_features)
 
         filename = str(int(time.time())) + ".pickle"
         with open(filename, "wb") as file:
-            pickle.dump([sift, self.kmeans, self.idf, self.nn, self.knn, self.train_pic, self.train_label, self.ovr], file)
+            pickle.dump([sift, self.kmeans, self.idf, self.nn, self.knn, self.train_pic, self.train_label, self.ovr, self.train_features], file)
         self.modelname.config(text="model:" + filename)
 
     def load(self):
@@ -141,7 +141,7 @@ class MainWindow:
 
         self.modelname.config(text="model:" + str(file).split('/')[-1])
         with open(file, "rb") as f:
-            sift, self.kmeans, self.idf, self.nn, self.knn, self.train_pic, self.train_label, self.ovr = pickle.load(f)
+            sift, self.kmeans, self.idf, self.nn, self.knn, self.train_pic, self.train_label, self.ovr, self.train_features = pickle.load(f)
             self.manage = cv2.xfeatures2d.SIFT_create() if sift else cv2.xfeatures2d.SURF_create()
 
     def drawROC(self, test_features, test_label):
@@ -356,7 +356,7 @@ class MainWindow:
         if self.getnum.get().isdigit():
             self.shownum = min(int(self.getnum.get()), len(self.train_pic), 100)
         if self.shownum <= 0:
-            self.shownum = 5
+            self.shownum    = 5
 
         _, des = self.manage.detectAndCompute(self.img, None)
         vector = get_image_features(self.kmeans, des)
@@ -364,13 +364,24 @@ class MainWindow:
         # 由高到低返回某张图片的 距离以及编号
         self.dis, self.ids = self.nn.kneighbors(np.array(vector).reshape(1, -1))
 
+        nvector = []
+        for i in range(len(vector)):
+            nvector.append(0)
+        for i in range(self.shownum):
+            for j in range(len(vector)):
+                nvector[j] += self.train_features[self.ids[0][i]][j]
+        for i in range(len(vector)):
+            nvector[i] /= self.shownum
+        vector = nvector
+        self.dis, self.ids = self.nn.kneighbors(np.array(vector).reshape(1, -1))
+
         label = []
         # 将每个被显示的图像的 label 加入 label list中
         for i in range(self.shownum):
             label.append(self.train_label[self.ids[0][i]])
         # dis 代表被显示的图像的距离 ids 代表被显示图像在训练集中的编号
-        dis = self.dis[0][ : self.shownum]
-        ids = self.ids[0][ : self.shownum]
+        dis = self.dis[0][ : int((self.shownum - 1) / 5 * 5 + 5)]
+        ids = self.ids[0][ : int((self.shownum - 1) / 5 * 5 + 5)]
         # dic 代表不同的 label 对应的度量值
         dic = {}
         for i in range(self.shownum):
