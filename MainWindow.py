@@ -355,8 +355,8 @@ class MainWindow:
             return
         if self.getnum.get().isdigit():
             self.shownum = min(int(self.getnum.get()), len(self.train_pic), 100)
-        if self.shownum <= 0:
-            self.shownum    = 5
+        if self.shownum < 5:
+            self.shownum = 5
 
         _, des = self.manage.detectAndCompute(self.img, None)
         vector = get_image_features(self.kmeans, des)
